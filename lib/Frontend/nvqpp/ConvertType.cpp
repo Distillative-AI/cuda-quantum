@@ -150,7 +150,8 @@ static bool isKernelResultType(Type t) {
 static bool isKernelArgumentType(Type t) {
   return isArithmeticType(t) || isComposedArithmeticType(t) ||
          quake::isQuantumReferenceType(t) || isKernelCallable(t) ||
-         isFunctionCallable(t) ||
+         isFunctionCallable(t) || isMeasureResultType(t) ||
+         isMeasureResultSequenceType(t) ||
          // TODO: move from pointers to a builtin string type.
          cudaq::isCharPointerType(t);
 }

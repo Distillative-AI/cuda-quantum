@@ -636,21 +636,39 @@ bool QuakeBridgeVisitor::VisitCastExpr(clang::CastExpr *x) {
         builder.create<cudaq::cc::CastOp>(loc, castToTy, popValue(), mode));
   }
   case clang::CastKind::CK_IntegralToFloating: {
+    auto value = popValue();
+    // If source is `!quake.measure`, discriminate it first
+    if (isa<quake::MeasureType>(value.getType())) {
+      value = builder.create<quake::DiscriminateOp>(loc, builder.getI1Type(),
+                                                    value);
+    }
     auto mode =
         (x->getSubExpr()->getType()->isUnsignedIntegerOrEnumerationType())
             ? cudaq::cc::CastOpMode::Unsigned
             : cudaq::cc::CastOpMode::Signed;
     return pushValue(
-        builder.create<cudaq::cc::CastOp>(loc, castToTy, popValue(), mode));
+        builder.create<cudaq::cc::CastOp>(loc, castToTy, value, mode));
   }
   case clang::CastKind::CK_IntegralToBoolean: {
     auto last = popValue();
+    // If the value is `!quake.measure`, discriminate it first
+    if (isa<quake::MeasureType>(last.getType())) {
+      last =
+          builder.create<quake::DiscriminateOp>(loc, builder.getI1Type(), last);
+      return pushValue(last);
+    }
     Value zero = builder.create<arith::ConstantIntOp>(loc, 0, last.getType());
     return pushValue(builder.create<arith::CmpIOp>(
         loc, arith::CmpIPredicate::ne, last, zero));
   }
   case clang::CastKind::CK_FloatingToBoolean: {
     auto last = popValue();
+    // If the value is `!quake.measure`, discriminate it first
+    if (isa<quake::MeasureType>(last.getType())) {
+      last =
+          builder.create<quake::DiscriminateOp>(loc, builder.getI1Type(), last);
+      return pushValue(last);
+    }
     Value zero = opt::factory::createFloatConstant(
         loc, builder, 0.0, cast<FloatType>(last.getType()));
     return pushValue(builder.create<arith::CmpFOp>(
@@ -667,10 +685,20 @@ bool QuakeBridgeVisitor::VisitCastExpr(clang::CastExpr *x) {
       return result;
     }
     auto i1Type = builder.getI1Type();
-
-    // Handle conversion of `measure_result` to `bool`.
-    if (isa<quake::MeasureType>(sub.getType()))
-      return pushValue(builder.create<quake::DiscriminateOp>(loc, i1Type, sub));
+    // Handle conversion of `measure_result`
+    if (isa<quake::MeasureType>(sub.getType())) {
+      auto i1Val = builder.create<quake::DiscriminateOp>(loc, i1Type, sub);
+      // Convert to `int`
+      if (isa<IntegerType>(castToTy))
+        return pushValue(
+            builder.create<cudaq::cc::CastOp>(loc, castToTy, i1Val));
+      // Convert to `float`
+      if (isa<FloatType>(castToTy))
+        return pushValue(builder.create<cudaq::cc::CastOp>(
+            loc, castToTy, i1Val, cudaq::cc::CastOpMode::Unsigned));
+      // Otherwise, just return the `i1` value
+      return pushValue(i1Val);
+    }
 
     // Handle conversion of `std::vector<measure_result>` to `std::vector<bool>`
     if (auto vecTy = dyn_cast<cc::StdvecType>(sub.getType()))
@@ -831,6 +859,13 @@ bool QuakeBridgeVisitor::VisitBinaryOperator(clang::BinaryOperator *x) {
       x->getOpcode() == clang::BinaryOperatorKind::BO_NE) {
     rhs = maybeLoadValue(rhs);
     lhs = maybeLoadValue(lhs);
+    // Discriminate measure types before comparison
+    if (isa<quake::MeasureType>(lhs.getType()))
+      lhs =
+          builder.create<quake::DiscriminateOp>(loc, builder.getI1Type(), lhs);
+    if (isa<quake::MeasureType>(rhs.getType()))
+      rhs =
+          builder.create<quake::DiscriminateOp>(loc, builder.getI1Type(), rhs);
     // Floating point comparison?
     if (isa<FloatType>(lhs.getType())) {
       arith::CmpFPredicate pred;
@@ -909,6 +944,11 @@ bool QuakeBridgeVisitor::VisitBinaryOperator(clang::BinaryOperator *x) {
   }
   rhs = maybeLoadValue(rhs);
   lhs = maybeLoadValue(lhs);
+  // Discriminate measure types before arithmetic
+  if (isa<quake::MeasureType>(lhs.getType()))
+    lhs = builder.create<quake::DiscriminateOp>(loc, builder.getI1Type(), lhs);
+  if (isa<quake::MeasureType>(rhs.getType()))
+    rhs = builder.create<quake::DiscriminateOp>(loc, builder.getI1Type(), rhs);
   castToSameType(builder, loc, x->getLHS()->getType().getTypePtrOrNull(), lhs,
                  x->getRHS()->getType().getTypePtrOrNull(), rhs);
   switch (x->getOpcode()) {
@@ -996,6 +1036,10 @@ bool QuakeBridgeVisitor::TraverseConditionalOperator(
   if (!TraverseStmt(x->getCond()))
     return false;
   auto condVal = popValue();
+  // Discriminate if condition is `!quake.measure`
+  if (isa<quake::MeasureType>(condVal.getType()))
+    condVal = builder.create<quake::DiscriminateOp>(loc, builder.getI1Type(),
+                                                    condVal);
   Type resultTy = builder.getI64Type();
 
   // Create shared lambda for the x->getTrueExpr() and x->getFalseExpr()
@@ -2147,19 +2191,30 @@ bool QuakeBridgeVisitor::VisitCallExpr(clang::CallExpr *x) {
     }
 
     if (funcName == "toInteger" || funcName == "to_integer") {
+      auto arg = args[0];
+      // Insert discriminate if input is `!cc.stdvec<!quake.measure>`
+      if (auto vecTy = dyn_cast<cc::StdvecType>(arg.getType())) {
+        if (isa<quake::MeasureType>(vecTy.getElementType())) {
+          auto i1Ty = builder.getI1Type();
+          arg = builder.create<quake::DiscriminateOp>(
+              loc, cc::StdvecType::get(i1Ty), arg);
+        }
+      }
       IRBuilder irBuilder(builder.getContext());
       if (failed(irBuilder.loadIntrinsic(module, cudaqConvertToInteger))) {
         reportClangError(x, mangler, "cannot load cudaqConvertToInteger");
         return false;
       }
       auto i64Ty = builder.getI64Type();
-      return pushValue(
-          builder.create<func::CallOp>(loc, i64Ty, cudaqConvertToInteger, args)
-              .getResult(0));
+      return pushValue(builder
+                           .create<func::CallOp>(loc, i64Ty,
+                                                 cudaqConvertToInteger,
+                                                 ValueRange{arg})
+                           .getResult(0));
     }
 
     if (funcName == "to_bool_vector") {
-      // args[0] is !cc.stdvec<!quake.measure> from mz()
+      // `args[0]` is `!cc.stdvec<!quake.measure>`
       auto arg = args[0];
       // Insert discriminate if needed
       if (auto vecTy = dyn_cast<cc::StdvecType>(arg.getType())) {
@@ -2169,15 +2224,7 @@ bool QuakeBridgeVisitor::VisitCallExpr(clang::CallExpr *x) {
               loc, cc::StdvecType::get(i1Ty), arg);
         }
       }
-      IRBuilder irBuilder(builder.getContext());
-      if (failed(irBuilder.loadIntrinsic(module, cudaqConvertToBoolVector))) {
-        reportClangError(x, mangler, "cannot load cudaqConvertToBoolVector");
-        return false;
-      }
-      return pushValue(builder
-                           .create<func::CallOp>(loc, arg.getType(),
-                                                 cudaqConvertToBoolVector, arg)
-                           .getResult(0));
+      return pushValue(arg);
     }
 
     if (funcName == "slice_vector") {
