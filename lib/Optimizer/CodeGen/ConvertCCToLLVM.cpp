@@ -81,6 +81,12 @@ void cudaq::opt::populateCCTypeConversions(LLVMTypeConverter *converter) {
     return LLVM::LLVMStructType::getLiteral(type.getContext(), members,
                                             type.getPacked());
   });
+  converter->addConversion([](quake::MeasureType type) -> Type {
+    auto ctx = type.getContext();
+    auto i32Ty = IntegerType::get(ctx, 32);
+    auto i64Ty = IntegerType::get(ctx, 64);
+    return LLVM::LLVMStructType::getLiteral(ctx, {i32Ty, i64Ty});
+  });
 }
 
 std::size_t cudaq::opt::getDataSize(llvm::DataLayout &dataLayout, Type ty) {

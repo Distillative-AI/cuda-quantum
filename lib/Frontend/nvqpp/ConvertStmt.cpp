@@ -359,10 +359,7 @@ bool QuakeBridgeVisitor::VisitReturnStmt(clang::ReturnStmt *x) {
       };
       IRBuilder irb(builder);
       Value tySize;
-      if (isa<quake::MeasureType>(eleTy)) {
-        /// FIXME: Confirm that this is okay.
-        tySize = irb.getByteSizeOfType(loc, builder.getI32Type());
-      } else if (!cudaq::cc::isDynamicType(eleTy)) {
+      if (!cudaq::cc::isDynamicType(eleTy)) {
         tySize = irb.getByteSizeOfType(loc, eleTy);
       }
       if (!tySize) {
