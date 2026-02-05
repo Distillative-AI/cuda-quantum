@@ -1498,7 +1498,8 @@ bool QuakeBridgeVisitor::VisitCallExpr(clang::CallExpr *x) {
       isInClassInNamespace(func, "qvector", "cudaq") ||
       isInClassInNamespace(func, "qarray", "cudaq") ||
       isInClassInNamespace(func, "qspan", "cudaq") ||
-      isInClassInNamespace(func, "qview", "cudaq")) {
+      isInClassInNamespace(func, "qview", "cudaq") ||
+      isInClassInNamespace(func, "measure_result", "cudaq")) {
     // This handles conversion of qreg.size()
     if (funcName == "size")
       if (auto memberCall = dyn_cast<clang::CXXMemberCallExpr>(x))

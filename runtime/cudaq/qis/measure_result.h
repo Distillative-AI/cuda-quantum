@@ -30,12 +30,17 @@ private:
   std::optional<std::size_t> uniqueId = std::nullopt;
 
 public:
+  measure_result() = default;
   measure_result(int res) : result(res) {}
   measure_result(int res, std::size_t id) : result(res), uniqueId(id) {}
 
   operator bool() const { return __nvqpp__MeasureResultBoolConversion(result); }
   explicit operator int() const { return result; }
   explicit operator double() const { return static_cast<double>(result); }
+
+  friend bool operator==(const measure_result &m, bool b) {
+    return static_cast<bool>(m) == b;
+  }
 };
 
 } // namespace cudaq
