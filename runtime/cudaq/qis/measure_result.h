@@ -40,7 +40,11 @@ public:
   std::size_t getUniqueId() const { return uniqueId; }
 
   // Operator overloads for conversions and comparisons
+#ifdef CUDAQ_LIBRARY_MODE
   operator bool() const { return __nvqpp__MeasureResultBoolConversion(result); }
+#else
+  operator bool() const { return result == 1; }
+#endif
   explicit operator int() const { return result; }
   explicit operator double() const { return static_cast<double>(result); }
 

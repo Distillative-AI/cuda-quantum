@@ -240,7 +240,7 @@ cudaq::RecordLogParser::getDataHandler(const std::string &dataType) {
   static details::DataHandler<double> f64Handler(
       std::make_unique<details::FloatConverter<double>>());
   // Map data type to the corresponding handler
-  if (dataType == "measure_result")
+  if (dataType == "result")
     return measureResultHandler;
   if (dataType == "i1")
     return boolHandler;
@@ -283,7 +283,7 @@ void cudaq::RecordLogParser::processSingleRecord(const std::string &recValue,
   // For result type, we don't use the record label (register name) as the type
   // annotation.
   if (currentOutput == OutputType::RESULT)
-    label = "measure_result";
+    label = "result";
   if (label.empty()) {
     if (currentOutput == OutputType::BOOL)
       label = "i1";

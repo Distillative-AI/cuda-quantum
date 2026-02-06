@@ -359,9 +359,8 @@ bool QuakeBridgeVisitor::VisitReturnStmt(clang::ReturnStmt *x) {
       };
       IRBuilder irb(builder);
       Value tySize;
-      if (!cudaq::cc::isDynamicType(eleTy)) {
+      if (!cudaq::cc::isDynamicType(eleTy))
         tySize = irb.getByteSizeOfType(loc, eleTy);
-      }
       if (!tySize) {
         // TODO: we need to recursively create copies of all
         // dynamic memory used within the type. See the
